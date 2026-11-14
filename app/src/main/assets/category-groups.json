@@ -1,0 +1,307 @@
+[
+  {
+    "id": "group-1",
+    "name": "Hrana",
+    "icon": "🥖",
+    "categories": [
+      "slatki konditori i cerealije",
+      "mleko, mlecni i mesoviti proizvodi, jaja",
+      "sveze i preradeno meso",
+      "smrznuti proizvodi",
+      "slani konditori",
+      "supe, so, zacini i prilozi jelima",
+      "prerada voca i povrca i biljni namazi",
+      "hleb i peciva",
+      "sveze voce i povrce",
+      "testenine i kore",
+      "sveza i preradena riba",
+      "brasno, dodaci za pecenje i kolace i praskasti proizvodi",
+      "ulja i masti",
+      "pirinac i druge zitarice",
+      "secer i med",
+      "sirce",
+      "mahunarke",
+      "слатки кондитори и цереалије",
+      "слани кондитори",
+      "prehrana"
+    ]
+  },
+  {
+    "id": "group-2",
+    "name": "Piće, kafa i čaj",
+    "icon": "☕",
+    "categories": [
+      "bezalkoholna pica, kafa, caj",
+      "alkoholna pica",
+      "безалкохолна пића, кафа, чај"
+    ]
+  },
+  {
+    "id": "group-3",
+    "name": "Kućna hemija",
+    "icon": "🧼",
+    "categories": [
+      "kucna hemija",
+      "hemija"
+    ]
+  },
+  {
+    "id": "group-4",
+    "name": "Lična nega i kozmetika",
+    "icon": "🧴",
+    "categories": [
+      "licna higijena i kozmetika"
+    ]
+  },
+  {
+    "id": "group-5",
+    "name": "Bebe i deca",
+    "icon": "🍼",
+    "categories": [
+      "hrana za bebe",
+      "pelene",
+      "igracke"
+    ]
+  },
+  {
+    "id": "group-6",
+    "name": "Kućni ljubimci",
+    "icon": "🐾",
+    "categories": [
+      "hrana za kucne ljubimce",
+      "pet program"
+    ]
+  },
+  {
+    "id": "group-7",
+    "name": "Bela tehnika",
+    "icon": "🧊",
+    "categories": [
+      "frizideri",
+      "ves masine",
+      "ugradne ploce",
+      "bojleri",
+      "aspiratori",
+      "sudomasine",
+      "ugradne rerne",
+      "zamrzivaci",
+      "masine za susenje vesa",
+      "masine pranje susenje",
+      "sporeti",
+      "ugradna tehnika",
+      "ugradni setovi"
+    ]
+  },
+  {
+    "id": "group-8",
+    "name": "Mali kućni aparati",
+    "icon": "🔌",
+    "categories": [
+      "pegle",
+      "fenovi za kosu",
+      "usisivaci,parocistaci i oprema",
+      "ketleri",
+      "tosteri i grill aparati",
+      "trimeri za kosu,bradu,nos",
+      "mikrotalasne",
+      "sokovnici,blenderi,multipraktici,roboti",
+      "stapni mikseri",
+      "stajleri,uvijaci",
+      "telesne vage",
+      "brijaci",
+      "mikseri sa posudom",
+      "kafe aparati i oprema",
+      "pegle za kosu",
+      "mikseri",
+      "resoi i rostilji",
+      "kuhinjske vage",
+      "seckalice",
+      "zavarivaci folije i oprema",
+      "aquashield aparati i filteri",
+      "friteze,multikuker",
+      "galeti,krofne,mafini,projice",
+      "rucni mikseri",
+      "salamoreznice,masine za meso",
+      "ringle",
+      "depilatori,epilatori",
+      "kokice,palacinke,dehidratori",
+      "mini pekare",
+      "mini sporeti",
+      "parne kuhinje"
+    ]
+  },
+  {
+    "id": "group-9",
+    "name": "Grejanje i hlađenje",
+    "icon": "🌡",
+    "categories": [
+      "grejanje i hladenje",
+      "grejna tela",
+      "preciscivaci vazduha i filteri",
+      "klime",
+      "preciscivaci i osvezivaci vazduha"
+    ]
+  },
+  {
+    "id": "group-10",
+    "name": "Alati i oprema",
+    "icon": "🛠",
+    "categories": [
+      "alati",
+      "alati ostalo",
+      "okovi",
+      "gvozdurija",
+      "zastita na radu"
+    ]
+  },
+  {
+    "id": "group-11",
+    "name": "Dom i kuhinja",
+    "icon": "🏠",
+    "categories": [
+      "domacinstvo",
+      "papirna i kuhinjska galanterija",
+      "dekoracija",
+      "tekstil",
+      "nova godina",
+      "uskrs",
+      "prekrivaci",
+      "podne prostirke",
+      "odlaganje",
+      "kutije i posude za hranu",
+      "odlaganje smeca",
+      "jastucnice dekorativne"
+    ]
+  },
+  {
+    "id": "group-12",
+    "name": "Kupatilo i sanitarije",
+    "icon": "🚿",
+    "categories": [
+      "kupatilo",
+      "sanitarije",
+      "sudopere"
+    ]
+  },
+  {
+    "id": "group-13",
+    "name": "Uređenje i gradnja",
+    "icon": "🧱",
+    "categories": [
+      "podovi i boje",
+      "boje i lakovi",
+      "gradevinski materijali",
+      "vrata",
+      "tapete",
+      "laminat classen"
+    ]
+  },
+  {
+    "id": "group-14",
+    "name": "Rasveta i elektrooprema",
+    "icon": "💡",
+    "categories": [
+      "rasveta",
+      "struja",
+      "elektro",
+      "visilice",
+      "stone lampe",
+      "plafonjere",
+      "spotovi",
+      "lusteri",
+      "zidne lampe",
+      "podne lampe",
+      "spoljna led rasveta",
+      "spoljna rasveta",
+      "solarna rasveta",
+      "unutrasnja dekorativna",
+      "fenjeri"
+    ]
+  },
+  {
+    "id": "group-15",
+    "name": "Bašta i bazeni",
+    "icon": "🌱",
+    "categories": [
+      "basta",
+      "basta - rad",
+      "basta - odmor",
+      "oprema za bazene",
+      "nadzemni bazeni",
+      "bastenski namestaj"
+    ]
+  },
+  {
+    "id": "group-16",
+    "name": "Računari i oprema",
+    "icon": "💻",
+    "categories": [
+      "oprema za racunare",
+      "laptop - oprema i delovi",
+      "hardware i komponente",
+      "stampaci i oprema",
+      "mrezna oprema",
+      "monitori",
+      "laptopovi",
+      "gaming i oprema",
+      "desktop racunari",
+      "pos oprema",
+      "tableti i oprema za tablete",
+      "serveri i oprema",
+      "misevi i tastature",
+      "memorije i kartice",
+      "nosaci za monitore",
+      "it kablovi,adapteri,ostalo",
+      "software"
+    ]
+  },
+  {
+    "id": "group-17",
+    "name": "Elektronika i telefoni",
+    "icon": "📱",
+    "categories": [
+      "tehnika",
+      "tv video i oprema",
+      "audio uredaji",
+      "mobilni telefoni i oprema",
+      "sigurnosne kamere i alarmi",
+      "projektori i platna",
+      "slusalice,zvucnici",
+      "telefoni",
+      "tv i dvb tuneri",
+      "kamere i foto aparati",
+      "audio i budilnici",
+      "dronovi i oprema"
+    ]
+  },
+  {
+    "id": "group-18",
+    "name": "Auto i moto",
+    "icon": "🚗",
+    "categories": [
+      "auto",
+      "autooprema",
+      "oprema za automobile"
+    ]
+  },
+  {
+    "id": "group-19",
+    "name": "Sport i rekreacija",
+    "icon": "🚲",
+    "categories": [
+      "elektricni trotineti i oprema",
+      "oprema za plivanje",
+      "home & sport"
+    ]
+  },
+  {
+    "id": "group-20",
+    "name": "Knjige i pokloni",
+    "icon": "📚",
+    "categories": [
+      "knjige",
+      "gift",
+      "drustvene igre"
+    ]
+  }
+]

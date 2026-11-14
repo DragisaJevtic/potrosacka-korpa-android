@@ -1,0 +1,12 @@
+Potrošačka korpa 0.4.1
+
+- Raspon najniže i najviše cene istog proizvoda u rezultatima pretrage; ako su cene iste, prikazuje se jedan iznos.
+- Cena izabrane ponude ostaje jasno označena i koristi se za spisak.
+- Pančevo i druga tačna poklapanja naziva mesta prikazuju se prva.
+- Odvojena polja za ulicu i kućni broj, jasnije poruke za nepotvrđene adrese.
+- Pamćenje poslednje potvrđene oblasti i udaljenosti pretrage.
+- Naziv trgovinskog lanca uz poslovnicu.
+- Potkategorije proizvoda, uključujući odvojeni izbor kafe, čaja i pića.
+- Skener otvara kameru direktno u portrait režimu.
+
+Raspon cena obuhvata ceo sačuvani katalog, nije ograničen lokacijom. Cene su informativne; dostupnost u poslovnici nije potvrđena.

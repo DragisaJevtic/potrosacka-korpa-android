@@ -1,0 +1,16 @@
+.gradle/
+.idea/
+.kotlin/
+**/build/
+local.properties
+*.jks
+*.keystore
+.env
+.env.*
+firebase-debug*.log
+.firebase/
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+app/src/main/assets/catalog.db.gzip
