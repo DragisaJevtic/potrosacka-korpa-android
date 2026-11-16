@@ -138,3 +138,83 @@ Prošli Android unit testovi i lintDebug. APK nije pravljen.
 - Prošlo 20 Android unit testova, lintDebug i 12 Python/SQLite testova.
 - Tok sistemskih podešavanja/dozvola i potvrdu adrese proveriti na telefonu;
   u ovom koraku APK nije pravljen niti je menjan povezani uređaj.
+
+## 16.11.2026: AdMob u rezultatima kategorija
+
+- Dodat jedan inline adaptive banner posle šestog proizvoda prve strane rezultata.
+  Brojači i straničenje ostaju vezani za proizvode. Promena upita/ekrana uništava
+  prethodni AdView; neuspešno učitavanje uklanja slot.
+- Debug ima Google test ID-jeve; release oglasi su isključeni dok se ne zadaju
+  oba produkcijska ID-ja. UMP proverava saglasnost pre inicijalizacije oglasa.
+- Prošlo 20 Android unit testova, 12 Python/SQLite testova, lintDebug i
+  compileReleaseKotlin. Fragment 1.8.5 eksplicitno usklađen zbog stare
+  tranzitivne verzije iz Ads SDK-a i ActivityResult skenera.
+- Oglasi i UMP obrasci nisu provereni na telefonu. Postojeći unit testovi nisu
+  dokaz mrežnog prikaza oglasa; ručni scenariji i konfiguracija su u ADMOB.md.
+- APK nije pravljen niti distribuiran.
+
+### Više oglasnih pozicija
+
+Raspored proširen na oglas posle svakih pet proizvoda: šest pozicija na 30
+rezultata i još šest pri učitavanju sledećih 30. Svaki slot ima zaseban AdView;
+neuspeh jednog oglasa uklanja samo njegov slot. Novi upit, izlazak sa ekrana
+i promena saglasnosti oslobađaju sve oglase, dok „Prikaži još“ čuva postojeće.
+Prošli testDebugUnitTest (20 testova) i lintDebug. Prikaz više oglasa na telefonu
+još nije ručno proveren; APK nije pravljen.
+
+### Format 300 × 250
+
+Oglasne pozicije sada koriste AdSize.MEDIUM_RECTANGLE (300 × 250 dp), centrirano
+posle svakih pet proizvoda. Ako dostupna širina liste nije najmanje 300 dp,
+slot se uklanja umesto da oglas bude odsečen. compileDebugKotlin i lintDebug
+prolaze. Vizuelna provera na telefonu nije rađena; APK nije pravljen.
+
+### Oglasi u poređenju i na spisku
+
+- Poređenje cena (iz kategorija ili rezultata skenera): 300 × 250 posle pet
+  ponuda, odnosno jedan na kraju za 1–4 ponude. Bez oglasa tokom učitavanja,
+  kod greške ili bez ponuda. Dijalog proširen da omogući širinu oglasa;
+  zatvaranje dijaloga oslobađa sve njegove AdView instance.
+- Spisak: uzani 320 × 50 posle svaka tri proizvoda. Oglasi ne menjaju količine,
+  zbir ni izbor najjeftinije kupovine. Ponovni prikaz oslobađa stare oglase.
+- Oba prikaza prosleđuju pause/resume/destroy. Za nedovoljnu širinu slot se
+  uklanja. Debug ostaje na test oglasima.
+- testDebugUnitTest (20 testova) i lintDebug prolaze. Ručna provera oglasa,
+  skrolovanja i dijaloga na telefonu ostaje potrebna. APK nije pravljen.
+
+### Dugmad za pretragu lokacije na dnu
+
+Na ekranu Najjeftinija kupovina, NearbyPicker u ugrađenom prikazu sada ima
+skrolujuća polja sa težinom 1 i zaseban donji deo sa dugmadima „Pretraži“ i
+„Pretraži samo izabrano mesto, bez okoline“. Drugo dugme se i dalje prikazuje
+samo za mala naselja. Postojeći sistemski/IME insets ekrana obuhvataju i donji
+deo. Dijaloški prikaz zadržava svoj raspored.
+compileDebugKotlin i lintDebug prolaze; ručna provera na telefonu nije rađena.
+APK nije pravljen.
+
+### Oglas uz početnu sačuvanu lokaciju
+
+Dodat jedan banner 320 × 50 nakon poruke o sačuvanoj lokaciji, iznad donjih
+dugmadi u ugrađenom biraču. Učitava se samo pri uspešnom vraćanju sačuvane
+lokacije. Promena mesta/novo lociranje čiste oglas; dispose ga uništava,
+a Activity prosleđuje pause/resume. compileDebugKotlin i lintDebug prolaze.
+Prikaz na telefonu nije proveren; APK nije pravljen.
+
+### Oglasi između grupa prodavnica
+
+Rezultati najjeftinije kupovine koriste 300 × 250 između grupa, odnosno jedan
+na dnu kada postoji samo jedna grupa. Za nula grupa nema oglasa. Sadržaj i
+obračun grupa nisu promenjeni. Dodato čišćenje pri novoj pretrazi/izboru mesta
+i prosleđivanje životnog ciklusa ekrana. testDebugUnitTest (20 testova) i
+lintDebug prolaze; prikaz na telefonu nije ručno proveren. APK nije pravljen.
+
+### Interstitial pre navigacije
+
+Dodat NavigationAd sa preuzimanjem unapred, proverom UMP dozvole, rokom od
+55 minuta za učitani oglas i trajno sačuvanim razmakom od pet minuta između
+prikaza. Mapa se otvara nakon zatvaranja/greške prikaza, ili odmah ako oglas
+nije spreman. Nastavak se troši jednom i poništava pri uništavanju ekrana.
+Debug ima Google test ID; release zahteva korpaAdMobInterstitialId.
+Prošli testDebugUnitTest (20 postojećih testova), lintDebug i compileReleaseKotlin.
+Postojeći testovi ne pokrivaju Google SDK callback-ove; prikaz oglasa i prelazak
+u Maps treba ručno proveriti na telefonu prema ADMOB.md. APK nije pravljen.

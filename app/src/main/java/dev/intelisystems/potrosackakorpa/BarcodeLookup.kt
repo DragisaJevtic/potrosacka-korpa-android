@@ -17,6 +17,7 @@ import java.util.concurrent.Executors
 /** Camera images stay with the scanner; only numeric product codes reach our API. */
 class BarcodeLookup(private val activity: Activity, private val addToShopping: (Offer) -> Unit, private val launchScanner: (ScanOptions) -> Unit) {
     private val history = PriceHistory(activity)
+    private val ads = CategoryAds(activity)
     private val worker = Executors.newSingleThreadExecutor()
     private var dialog: AlertDialog? = null
     private var scanning = false
@@ -83,7 +84,10 @@ class BarcodeLookup(private val activity: Activity, private val addToShopping: (
         if (fromScanner) builder.setPositiveButton("Novi kod") { _, _ -> show() }
         val resultDialog = builder.create()
         dialog = resultDialog
+        resultDialog.setOnDismissListener { ads.clear() }
         resultDialog.show()
+        resultDialog.window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
         resultDialog.window?.setBackgroundDrawable(KorpaUi.rounded(activity, KorpaUi.paper))
         if (fromScanner) KorpaUi.styleButton(resultDialog.getButton(AlertDialog.BUTTON_POSITIVE))
         KorpaUi.styleButton(resultDialog.getButton(AlertDialog.BUTTON_NEGATIVE), KorpaUi.paper, KorpaUi.muted)
@@ -115,15 +119,18 @@ class BarcodeLookup(private val activity: Activity, private val addToShopping: (
                     if (offers.isEmpty()) rows.addView(text("Za ovaj bar-kod trenutno nemamo cenu u katalogu. Pokušaj pretragu po nazivu u kategorijama."))
                     else {
                         rows.addView(text("Najniže objavljene cene po prodajnom formatu. Prikaz nije ograničen na tvoju lokaciju; dostupnost u poslovnici nije potvrđena."))
-                        offers.groupBy { it.identity.source to it.identity.format }.values.map { group -> group.minBy { it.para } }
-                            .sortedBy { it.para }.forEach { offer ->
-                                val card = KorpaUi.card(activity)
-                                card.addView(text(offer.retailer, true))
-                                card.addView(text(offer.name))
-                                card.addView(KorpaUi.button(activity,
-                                    "${amount(offer.para)} · Istorija cene") { history.show(offer.identity) }, margins(8))
-                                rows.addView(card, margins(12))
-                            }
+                        val compared = offers.groupBy { it.identity.source to it.identity.format }.values
+                            .map { group -> group.minBy { it.para } }.sortedBy { it.para }
+                        compared.forEachIndexed { index, offer ->
+                            val card = KorpaUi.card(activity)
+                            card.addView(text(offer.retailer, true))
+                            card.addView(text(offer.name))
+                            card.addView(KorpaUi.button(activity,
+                                "${amount(offer.para)} · Istorija cene") { history.show(offer.identity) }, margins(8))
+                            rows.addView(card, margins(12))
+                            if ((index + 1) % 5 == 0) ads.insert(rows)
+                        }
+                        if (compared.size < 5) ads.insert(rows)
                     }
                     content.addView(ScrollView(activity).apply { addView(rows) })
                 }, onFailure = {
@@ -175,7 +182,9 @@ class BarcodeLookup(private val activity: Activity, private val addToShopping: (
     private fun message(value: String) {
         if (!closed) Toast.makeText(activity, value, Toast.LENGTH_LONG).show()
     }
-    fun close() { history.close(); closed = true; request++; dialog?.dismiss(); worker.shutdownNow() }
+    fun resume() { ads.resume() }
+    fun pause() { ads.pause() }
+    fun close() { ads.destroy(); history.close(); closed = true; request++; dialog?.dismiss(); worker.shutdownNow() }
 }
 
 internal fun validProductCode(code: String): Boolean {

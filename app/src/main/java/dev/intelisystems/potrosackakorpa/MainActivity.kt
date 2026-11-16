@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
         val warning = KorpaUi.warning
     }
 
+    private val categoryAds by lazy { CategoryAds(this) }
+    private val shoppingAds by lazy { CategoryAds(this, com.google.android.gms.ads.AdSize.BANNER) }
     private val catalog get() = (application as KorpaApplication).catalog
     private var unregisterCategoryBack: (() -> Unit)? = null
     private lateinit var body: FrameLayout
@@ -163,7 +165,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        categoryAds.resume()
+        shoppingAds.resume()
+        barcodeLookup.resume()
         synchronize()
+    }
+
+    override fun onPause() {
+        categoryAds.pause()
+        shoppingAds.pause()
+        barcodeLookup.pause()
+        super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -196,6 +208,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         cancelKeyboardHide()
         cancelSearch()
+        categoryAds.destroy()
+        shoppingAds.destroy()
         barcodeLookup.close()
         unregisterCategoryBack?.invoke()
         super.onDestroy()
@@ -264,6 +278,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun render() {
+        categoryAds.clear()
+        shoppingAds.clear()
         cancelKeyboardHide()
         results = null
         updateCategoryBack()
@@ -362,7 +378,7 @@ class MainActivity : ComponentActivity() {
             empty.addView(button("Otvori kategorije", mint, forest) { showCategories() }, margins(14))
             page.addView(empty, margins(16))
         } else {
-            list.forEach { item ->
+            list.forEachIndexed { index, item ->
                 val entry = card()
                 offerInfo(entry, item.offer)
                 val line = row().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -381,6 +397,7 @@ class MainActivity : ComponentActivity() {
                 })
                 entry.addView(line, margins(9))
                 page.addView(entry, margins(10))
+                if ((index + 1) % 3 == 0) shoppingAds.insert(page)
             }
         }
     }
@@ -419,6 +436,9 @@ class MainActivity : ComponentActivity() {
         }
         body.addView(layout, FrameLayout.LayoutParams(-1, -1))
         layout.addView(title("Kategorije"))
+        if (BuildConfig.AD_BANNER_ID.isNotEmpty()) {
+            layout.addView(button("Privatnost oglasa", mint, forest) { categoryAds.privacy() }, margins(8))
+        }
         val input = KorpaUi.input(EditText(this)).apply {
             hint = "Pretraži sve proizvode ili prodavnice"
             setSingleLine(true)
@@ -488,7 +508,7 @@ class MainActivity : ComponentActivity() {
             clear.visibility = if (searching) View.VISIBLE else View.GONE
             scroll.scrollTo(0, 0)
             updateCategoryBack()
-            if (searching) loadOffers() else { cancelSearch(); cards.removeAllViews() }
+            if (searching) loadOffers() else { cancelSearch(); categoryAds.clear(); cards.removeAllViews() }
         }
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -544,7 +564,7 @@ class MainActivity : ComponentActivity() {
         if (selected == null && search.isBlank()) return
         val cancellation = CancellationSignal()
         searchCancellation = cancellation
-        if (offset == 0) cards.removeAllViews()
+        if (offset == 0) { categoryAds.clear(); cards.removeAllViews() }
         val loadingText = label("Pripremamo pretragu…", 15, muted).apply { setPadding(dp(12), 0, 0, 0) }
         val loading = row().apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -586,7 +606,7 @@ class MainActivity : ComponentActivity() {
                     if (found.isEmpty() && offset == 0) {
                         cards.addView(label("Nema ponuda za ovu pretragu.", 15, muted), margins(16))
                     }
-                    found.take(30).forEach { offer ->
+                    found.take(30).forEachIndexed { index, offer ->
                         val entry = card()
                         offerInfo(entry, offer, showRetailer = false)
                         val line = row().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -605,6 +625,7 @@ class MainActivity : ComponentActivity() {
                             entry.addView(button("Uporedi cene i istoriju", mint, forest) { barcodeLookup.showProduct(code) }, margins(8))
                         }
                         cards.addView(entry, margins(9))
+                        if ((offset + index + 1) % 5 == 0) categoryAds.insert(cards)
                     }
                     if (found.size > 30) {
                         val more = button("Prikaži još", mint, forest) {

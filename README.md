@@ -78,3 +78,5 @@ Potreban je API sa podrškom za `nearest_fallback` (NUC: `nearest-20261115`).
 
 Provera 15.11.2026: `:app:testDebugUnitTest` (16 testova) i `:app:lintDebug`
 prošli. APK nije pravljen; pokretanje i testiranje iz Android Studija.
+
+Podešavanje oglasa u rezultatima pretrage: [AdMob](docs/ADMOB.md).

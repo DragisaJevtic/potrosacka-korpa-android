@@ -19,6 +19,8 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class CheapestActivity : Activity() {
+    private val navigationAd by lazy { NavigationAd(this) }
+    private val resultAds by lazy { CategoryAds(this, onReady = { navigationAd.preload() }) }
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var body: LinearLayout
     private var picker: NearbyPicker? = null
@@ -68,10 +70,12 @@ class CheapestActivity : Activity() {
         if (restored == null) chooseArea() else load(restored)
     }
     private fun chooseArea() {
+        resultAds.clear()
         generation++; area = null; picker?.dismiss(); body.removeAllViews()
         picker = NearbyPicker(this, body) { selected -> load(selected) }
     }
     private fun load(selected: ShoppingArea) {
+        resultAds.clear()
         area = selected
         picker?.dismiss(); picker = null
         val token = ++generation
@@ -125,7 +129,10 @@ class CheapestActivity : Activity() {
             content.addView(label("Potvrdi lokaciju da bismo za artikle bez ponude u mestu pronašli najbližu ponudu van mesta.", 14, warning), margins(8))
         }
         content.addView(label("Objavljen cenovnik ne potvrđuje da je artikal trenutno na stanju.", 13, muted), margins(6))
-        available.sortedBy { it.outsideArea }.groupBy { it.outsideArea to it.destination }.forEach { (group, products) ->
+        val groups = available.sortedBy { it.outsideArea }
+            .groupBy { it.outsideArea to it.destination }.entries.toList()
+        groups.forEachIndexed { index, (group, products) ->
+            if (index > 0) resultAds.insert(content)
             val (outsideArea, destination) = group
             val card = KorpaUi.card(this)
             content.addView(card, margins(16))
@@ -134,7 +141,7 @@ class CheapestActivity : Activity() {
             card.addView(label(retailer.orEmpty(), 18, ink, true), margins(if (outsideArea) 8 else 0))
             card.addView(label("Ukupno u prodavnici: ${rsd(products.sumOf { requireNotNull(it.price) * it.item.quantity })}", 16, forest, true), margins(8))
             destination?.let { store ->
-                card.addView(KorpaUi.button(this, "Navigacija", true) { openStoreMap(store) }.apply {
+                card.addView(KorpaUi.button(this, "Navigacija", true) { navigationAd.navigate { openStoreMap(store) } }.apply {
                     contentDescription = "Navigacija do ${store.name}, ${store.city}"
                 }, margins(8))
                 if (!store.hasAddress) card.addView(label("Adresa nije dostupna — otvara se pretraga prodavnice u mestu.", 12, muted), margins(3))
@@ -159,6 +166,7 @@ class CheapestActivity : Activity() {
                 else "nema potvrđene ponude u izabranoj okolini."
             content.addView(label("${result.item.offer.name} — $explanation", 14, warning), margins(12))
         }
+        if (groups.size == 1) resultAds.insert(content)
         return content
     }
     private fun openStoreMap(store: StoreDestination) {
@@ -182,9 +190,10 @@ class CheapestActivity : Activity() {
         super.onRequestPermissionsResult(code, permissions, grants)
         if (code == NearbyPicker.PERMISSION_REQUEST) picker?.onPermissionsResult()
     }
-    override fun onResume() { super.onResume(); picker?.onResume() }
+    override fun onResume() { super.onResume(); navigationAd.preload(); resultAds.resume(); picker?.onResume() }
+    override fun onPause() { resultAds.pause(); picker?.onPause(); super.onPause() }
     override fun onStop() { picker?.stopLocation(); super.onStop() }
-    override fun onDestroy() { generation++; picker?.dismiss(); worker.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { navigationAd.destroy(); resultAds.destroy(); generation++; picker?.dismiss(); worker.shutdownNow(); super.onDestroy() }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun margins(top: Int) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }

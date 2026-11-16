@@ -73,6 +73,10 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
     private var savedHouse = ""
     private val radius = Spinner(activity)
     private val status = TextView(activity)
+    private val initialLocationAds = CategoryAds(activity, com.google.android.gms.ads.AdSize.BANNER)
+    private val initialAdContainer = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+    }
     private val townOnly = KorpaUi.styleButton(Button(activity))
     private val streetFields = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private val radii = listOf(1, 2, 5, 10, 20)
@@ -121,20 +125,34 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
         radius.setSelection(1)
         content.addView(radius)
         content.addView(status)
+        if (container != null) content.addView(initialAdContainer)
         townOnly.text = "Pretraži samo izabrano mesto, bez okoline"
         townOnly.visibility = View.GONE
         townOnly.setOnClickListener {
             selected?.takeIf { it.population < 5000 }?.let { complete(ShoppingArea(it)) }
         }
-        content.addView(townOnly)
         status.text = "Učitavamo spisak naselja…"
         if (container == null) {
+            content.addView(townOnly)
             dialog = AlertDialog.Builder(activity).setTitle("Kupovina u okolini")
                 .setView(ScrollView(activity).apply { addView(content) })
                 .setPositiveButton("Pretraži", null).setNegativeButton("Otkaži", null).create()
         } else {
-            content.addView(KorpaUi.button(activity, "Pretraži", true) { search() })
-            container.addView(ScrollView(activity).apply { addView(content) }, LinearLayout.LayoutParams(-1, -1))
+            container.addView(ScrollView(activity).apply {
+                isFillViewport = true
+                addView(content)
+            }, LinearLayout.LayoutParams(-1, 0, 1f))
+            val actions = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(KorpaUi.paper)
+                setPadding(padding, padding / 2, padding, padding / 2)
+                addView(townOnly, LinearLayout.LayoutParams(-1, -2).apply {
+                    bottomMargin = KorpaUi.dp(activity, 8)
+                })
+                addView(KorpaUi.button(activity, "Pretraži", true) { search() },
+                    LinearLayout.LayoutParams(-1, -2))
+            }
+            container.addView(actions, LinearLayout.LayoutParams(-1, -2))
         }
         listOf(place, street, house).forEach { KorpaUi.input(it) }
         status.setTextColor(KorpaUi.muted)
@@ -188,6 +206,7 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
     fun dismiss() { dialog?.dismiss(); dispose() }
 
     private fun dispose() {
+        initialLocationAds.destroy()
         alive = false
         addressDialog?.dismiss()
         stopLocation()
@@ -199,6 +218,7 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
     }
 
     private fun clearAddress() {
+        initialLocationAds.clear()
         addressRevision++
         stopLocation()
         resolving = false
@@ -270,7 +290,10 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
             }.setNegativeButton("Unesi ručno", null).show()
     }
 
+    fun onPause() { initialLocationAds.pause() }
+
     fun onResume() {
+        initialLocationAds.resume()
         if (!alive || !awaitingSettings) return
         awaitingSettings = false
         if (!permitted()) {
@@ -286,6 +309,7 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
 
     @android.annotation.SuppressLint("MissingPermission")
     private fun locate() {
+        initialLocationAds.clear()
         stopLocation()
         if (!permitted()) return
         try {
@@ -506,6 +530,10 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
             house.setText(savedHouse)
             radius.setSelection(radii.indexOf(savedArea?.radius).takeIf { it >= 0 } ?: if (settlement.population < 5000) 3 else 1)
             status.text = "Sačuvana lokacija prethodne pretrage. Za novu trenutnu lokaciju izaberi „Moja lokacija“."
+            if (container != null) {
+                initialLocationAds.resume()
+                initialLocationAds.insert(initialAdContainer)
+            }
         }
     }
 
