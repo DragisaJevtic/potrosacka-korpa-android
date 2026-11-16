@@ -182,6 +182,7 @@ class CheapestActivity : Activity() {
         super.onRequestPermissionsResult(code, permissions, grants)
         if (code == NearbyPicker.PERMISSION_REQUEST) picker?.onPermissionsResult()
     }
+    override fun onResume() { super.onResume(); picker?.onResume() }
     override fun onStop() { picker?.stopLocation(); super.onStop() }
     override fun onDestroy() { generation++; picker?.dismiss(); worker.shutdownNow(); super.onDestroy() }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }

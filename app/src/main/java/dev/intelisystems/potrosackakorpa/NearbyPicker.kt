@@ -3,6 +3,11 @@ package dev.intelisystems.potrosackakorpa
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
+import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import android.content.pm.PackageManager
 import android.location.Address
 import android.location.Geocoder
@@ -224,7 +229,13 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
     fun onPermissionsResult() {
         if (!alive) return
         if (permitted()) locate()
-        else status.text = "Lokacija nije odobrena. Možeš ručno izabrati mesto i ulicu."
+        else {
+            status.text = "Lokacija nije odobrena. Možeš ručno izabrati mesto i ulicu."
+            if (!activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) &&
+                !activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                offerLocationSettings(true)
+            }
+        }
     }
 
     private fun permitted() = activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
@@ -238,6 +249,41 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
             Manifest.permission.ACCESS_COARSE_LOCATION), PERMISSION_REQUEST)
     }
 
+    private var awaitingSettings = false
+
+    private fun offerLocationSettings(appPermission: Boolean) {
+        addressDialog?.dismiss()
+        addressDialog = AlertDialog.Builder(activity)
+            .setTitle(if (appPermission) "Dozvoli pristup lokaciji" else "Uključi lokaciju")
+            .setMessage(if (appPermission) "U podešavanjima aplikacije dozvoli lokaciju dok koristiš aplikaciju. Možeš i ručno uneti adresu."
+                else "Pristup lokaciji i uključena lokacija telefona su odvojena podešavanja. Otvori podešavanja da uključiš lokaciju.")
+            .setPositiveButton("Otvori podešavanja") { _, _ ->
+                val intent = if (appPermission) Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${activity.packageName}")) else Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                try {
+                    awaitingSettings = true
+                    activity.startActivity(intent)
+                } catch (_: ActivityNotFoundException) {
+                    awaitingSettings = false
+                    status.text = "Otvori podešavanja telefona i uključi lokaciju ili unesi adresu ručno."
+                }
+            }.setNegativeButton("Unesi ručno", null).show()
+    }
+
+    fun onResume() {
+        if (!alive || !awaitingSettings) return
+        awaitingSettings = false
+        if (!permitted()) {
+            status.text = "Dozvola za lokaciju nije uključena. Možeš ponovo izabrati „Moja lokacija“ ili uneti adresu."
+            return
+        }
+        if (manager.allProviders.none { manager.isProviderEnabled(it) }) {
+            status.text = "Lokacija je i dalje isključena. Izaberi „Moja lokacija“ za ponovno otvaranje podešavanja."
+            return
+        }
+        locate()
+    }
+
     @android.annotation.SuppressLint("MissingPermission")
     private fun locate() {
         stopLocation()
@@ -248,6 +294,7 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
                 .filter { it in manager.allProviders && (precise || it != LocationManager.GPS_PROVIDER) && manager.isProviderEnabled(it) }
             if (providers.isEmpty()) {
                 status.text = "Uključi lokaciju na telefonu ili unesi mesto i ulicu."
+                offerLocationSettings(false)
                 return
             }
             locating = true
@@ -406,13 +453,9 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
                 if (found.isEmpty()) {
                     status.text = "Centar mesta nije potvrđen. Koristi „Moja lokacija“ u izabranom mestu za pretragu okoline."
                 } else {
-                    addressDialog = AlertDialog.Builder(activity).setTitle("Potvrdi centar naselja")
-                        .setItems(found.map { "${it.getAddressLine(0)} (${String.format(Locale.ROOT, "%.4f, %.4f", it.latitude, it.longitude)})" }.toTypedArray()) { _, index ->
-                            if (alive && selected?.id == settlement.id) {
-                                val address = found[index]
-                                complete(ShoppingArea(settlement, address.latitude, address.longitude, distance))
-                            }
-                        }.setNegativeButton("Nazad", null).show()
+                    showLocationConfirmation("Potvrdi centar naselja", found,
+                        found.map { it.getAddressLine(0) ?: settlement.name }, settlement, distance)
+
                 }
             }
         }
@@ -421,13 +464,31 @@ class NearbyPicker(private val activity: Activity, private val container: Linear
     private var addressDialog: AlertDialog? = null
 
     private fun confirmAddress(addresses: List<Address>, settlement: Settlement, radius: Int) {
-        addressDialog = AlertDialog.Builder(activity).setTitle("Potvrdi lokaciju za pretragu")
-            .setItems(addresses.map { "${it.thoroughfare} ${it.subThoroughfare}, ${settlement.name}" }.toTypedArray()) { _, index ->
-                if (alive) {
-                    val address = addresses[index]
-                    complete(ShoppingArea(settlement, address.latitude, address.longitude, radius))
-                }
-            }.setNegativeButton("Nazad", null).show()
+        showLocationConfirmation("Potvrdi lokaciju za pretragu", addresses,
+            addresses.map { "${it.thoroughfare} ${it.subThoroughfare}, ${settlement.name}" }, settlement, radius)
+    }
+
+    private fun showLocationConfirmation(title: String, addresses: List<Address>, labels: List<String>,
+                                         settlement: Settlement, radius: Int) {
+        val revision = addressRevision
+        activity.currentFocus?.let {
+            activity.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(it.windowToken, 0)
+            it.clearFocus()
+        }
+        var selectedIndex = 0
+        val builder = AlertDialog.Builder(activity).setTitle(title)
+        if (addresses.size == 1) builder.setMessage(labels.single())
+        else builder.setSingleChoiceItems(labels.toTypedArray(), 0) { _, index -> selectedIndex = index }
+        addressDialog?.dismiss()
+        addressDialog = builder.setPositiveButton("Potvrdi i pretraži") { _, _ ->
+            if (alive && revision == addressRevision && selected?.id == settlement.id) {
+                val address = addresses[selectedIndex]
+                complete(ShoppingArea(settlement, address.latitude, address.longitude, radius))
+            }
+        }.setNegativeButton("Nazad", null).show().also {
+            KorpaUi.styleButton(it.getButton(AlertDialog.BUTTON_POSITIVE), KorpaUi.forest, KorpaUi.white)
+            KorpaUi.styleButton(it.getButton(AlertDialog.BUTTON_NEGATIVE))
+        }
     }
 
     private fun restoreArea() {

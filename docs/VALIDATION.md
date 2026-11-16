@@ -124,3 +124,17 @@ Prošli Android unit testovi i lintDebug. APK nije pravljen.
 - Fizičko skeniranje, Maps i ponašanje tastature navedeni su testerima za proveru.
 - Firebase potvrdio objavu beležaka i distribuciju svim 5 registrovanih testera.
 - Izdanje: https://console.firebase.google.com/project/intelisystems-potrosacka-korpa/appdistribution/app/android:dev.intelisystems.potrosackakorpa/releases/4itjdonhme8o8
+
+## 16.11.2026: prijave testera — pretraga i lokacija
+
+- Više reči traži se nezavisno, uz AND između reči i OR između naziva/prodavca.
+  „Grand 250“ nalazi „Grand kafa Gold 250 g“ i „Kafa 250g Grand“.
+  Brojač i lista koriste isti filter; LIKE specijalni znaci ostaju literalni.
+- Isključena lokacija nudi otvaranje sistemskih podešavanja; nakon povratka
+  proveravaju se dozvola i uključeni provajderi pa se nastavlja lociranje.
+  Trajno odbijena dozvola nudi podešavanja aplikacije. Dozvola nije isto što i GPS prekidač.
+- Adresa/centar naselja imaju eksplicitno dugme Potvrdi i pretraži, sa izborom
+  ako ima više rezultata. Tastatura se skriva; zastarela potvrda se ignoriše.
+- Prošlo 20 Android unit testova, lintDebug i 12 Python/SQLite testova.
+- Tok sistemskih podešavanja/dozvola i potvrdu adrese proveriti na telefonu;
+  u ovom koraku APK nije pravljen niti je menjan povezani uređaj.

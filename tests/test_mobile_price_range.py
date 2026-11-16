@@ -15,7 +15,7 @@ class PriceRangeTests(unittest.TestCase):
         self.db.executescript((ROOT / 'app/src/main/assets/catalog-schema.sql').read_text())
         source = SOURCE.read_text().split('fun offers(')[1].split('fun shoppingList')[0]
         self.sql = re.search(r'rawQuery\("""(.*?)"""', source, re.S)[1]
-        self.sql = self.sql.replace('$categoryFilter', 'category IN (?)').replace('$operator', 'IN').replace('$placeholders', '?').replace('$beverageFilter', '1=1')
+        self.sql = self.sql.replace('$categoryFilter', 'category IN (?)').replace('$operator', 'IN').replace('$placeholders', '?').replace('$beverageFilter', '1=1').replace('$matchFilter', "name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!'")
 
     def offer(self, identifier, price, key, retailer='one'):
         self.db.execute('INSERT INTO offers VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -77,7 +77,7 @@ class PriceRangeTests(unittest.TestCase):
         self.db.execute("UPDATE offers SET category='hygiene' WHERE id='soap'")
         source = SOURCE.read_text().split('fun offers(')[1].split('fun offersForBarcode')[0]
         sql = re.search(r'rawQuery\("""(.*?)"""', source, re.S)[1]
-        sql = sql.replace('$categoryFilter', '1=1').replace('$beverageFilter', '1=1')
+        sql = sql.replace('$categoryFilter', '1=1').replace('$beverageFilter', '1=1').replace('$matchFilter', "name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!'")
         self.assertEqual([r[0] for r in self.db.execute(sql, ('%', '%', '0'))], ['milk', 'soap'])
         self.assertEqual([r[0] for r in self.db.execute(sql, ('%soap%', '%soap%', '0'))], ['soap'])
         self.assertEqual([r[0] for r in self.search()], ['milk'])
@@ -100,8 +100,19 @@ class PriceRangeTests(unittest.TestCase):
         total = re.search(r'rawQuery\("(SELECT count[^"\n]+)"', source)[1]
         matched = re.search(r'rawQuery\("""(.*?)"""', source, re.S)[1]
         def query(sql, scope):
-            return sql.replace('$categoryFilter', scope).replace('$beverageFilter', '1=1')
+            return sql.replace('$categoryFilter', scope).replace('$beverageFilter', '1=1').replace('$matchFilter', "name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!'")
         self.assertEqual(self.db.execute(query(total, '1=1')).fetchone()[0], 46)
         self.assertEqual(self.db.execute(query(matched, '1=1'), ('%milk%', '%milk%')).fetchone()[0], 45)
         self.assertEqual(self.db.execute(query(total, 'category IN (?)'), ('food',)).fetchone()[0], 45)
         self.assertEqual(self.db.execute(query(matched, 'category IN (?)'), ('food', '%soap%', '%soap%')).fetchone()[0], 0)
+
+    def test_multi_word_search_finds_brand_and_quantity_in_any_order(self):
+        self.offer('grand kafa gold 250 g', 10000, 'gtin:1')
+        self.offer('kafa 250g grand aroma', 12000, 'gtin:2')
+        self.offer('grand kafa 500 g', 15000, 'gtin:3')
+        source = SOURCE.read_text().split('fun offers(')[1].split('fun offersForBarcode')[0]
+        sql = re.search(r'rawQuery\("""(.*?)"""', source, re.S)[1]
+        clause = "(name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!')"
+        sql = sql.replace('$categoryFilter', '1=1').replace('$beverageFilter', '1=1').replace('$matchFilter', clause + ' AND ' + clause)
+        for params in [('%grand%', '%grand%', '%250%', '%250%', '0'), ('%250%', '%250%', '%grand%', '%grand%', '0')]:
+            self.assertEqual([r[0] for r in self.db.execute(sql, params)], ['grand kafa gold 250 g', 'kafa 250g grand aroma'])

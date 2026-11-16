@@ -162,7 +162,7 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
     fun searchOffers(category: String?, query: String, offset: Int,
                      cancellation: android.os.CancellationSignal, onTotal: (Long) -> Unit): SearchResults {
         val (categoryFilter, beverageFilter, members) = searchScope(category)
-        val term = "%" + searchKey(query.trim()).replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        val (matchFilter, matchArguments) = searchTerms(query)
         val db = readableDatabase
         // Counts and page refer to the same catalog even if a sync finishes during search.
         db.beginTransactionNonExclusive()
@@ -172,8 +172,8 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
             onTotal(total)
             val matched = db.rawQuery("""
                 SELECT count(*) FROM offers WHERE $categoryFilter AND ($beverageFilter)
-                AND (name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!')
-            """.trimIndent(), (members + listOf(term, term)).toTypedArray(), cancellation).use {
+                AND ($matchFilter)
+            """.trimIndent(), (members + matchArguments).toTypedArray(), cancellation).use {
                 it.moveToFirst(); it.getLong(0)
             }
             val result = SearchResults(total, matched, offers(category, query, offset, cancellation))
@@ -183,7 +183,7 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
     }
 
     fun offers(category: String?, query: String, offset: Int, cancellation: android.os.CancellationSignal? = null): List<Offer> {
-        val term = "%" + searchKey(query.trim()).replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        val (matchFilter, matchArguments) = searchTerms(query)
         val (categoryFilter, beverageFilter, members) = searchScope(category)
         return readableDatabase.rawQuery("""
             SELECT o.id, o.name, o.retailer, o.unit, o.price,
@@ -192,10 +192,10 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
             FROM (
                 SELECT * FROM offers WHERE $categoryFilter
                 AND ($beverageFilter)
-                AND (name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!')
+                AND ($matchFilter)
                 ORDER BY name_key, id LIMIT 31 OFFSET ?
             ) o ORDER BY o.name_key, o.id
-        """.trimIndent(), (members + listOf(term, term, offset.toString())).toTypedArray(), cancellation).use { cursor ->
+        """.trimIndent(), (members + matchArguments + listOf(offset.toString())).toTypedArray(), cancellation).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     add(Offer(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getLong(5), cursor.getLong(6), cursor.getString(7)?.removePrefix("gtin:")))
