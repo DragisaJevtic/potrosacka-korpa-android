@@ -1,6 +1,6 @@
 # Android repozitorijum
 
-Aktuelna verzija u kodu: **0.4.3**, versionCode **8**. Beleške ispod opisuju prethodne funkcionalne etape; nisu potpuna istorija izdanja.
+Aktuelna verzija u kodu: **0.5.4**, versionCode **13**. Beleške ispod opisuju prethodne funkcionalne etape; nisu potpuna istorija izdanja.
 
 Samostalan projekat; backend se koristi isključivo preko HTTP API-ja. Za lokalne Python testove pokreni `python3 -m unittest discover -s tests -v`. Gradle komande se pokreću iz korena ovog repozitorijuma.
 

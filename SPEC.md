@@ -16,3 +16,10 @@ Postojeća nativna Kotlin aplikacija za Android 7.0+; compile/target SDK 36. Ver
 Gradle build i Python testovi rade iz korena ovog repozitorijuma, bez backend izvornog koda. API URL je konfigurabilan postojećim Gradle svojstvima. Paket, verzija, lokalna šema i ponašanje aplikacije nisu promenjeni podelom. Početni katalog nije u Gitu; generator ga pravi preko API-ja, a aplikacija podržava njegovo odsustvo.
 
 Nove funkcije, Play objava i monetizacija nisu deo podele.
+
+## Backend migracija 9 (0.5.0)
+
+- Mobilni katalog zadržava delta protokol; nova generacija i povratak revizije zahtevaju reset. Sve strane moraju imati istu verziju/reset zastavicu i napredujući kursor pre transakcionog upisa.
+- Istorija je zaseban online zahtev za tačan barkod/izvor/format. Ne čuva se kao dnevni snapshot na telefonu.
+- `rows` predstavljaju prvo viđenje, promene uslova, povlačenje i povratak. `points` predstavljaju potvrđene periode; NULL prekida grafikon. `scheduled` ne menja vreme potvrde izvora.
+- Poređenje iz pretrage dostupno je za pouzdane GTIN kodove. Interni kodovi se ne porede između trgovaca.

@@ -1,12 +1,12 @@
-Potrošačka korpa 0.4.1
+Potrošačka korpa 0.5.4 (13)
 
-- Raspon najniže i najviše cene istog proizvoda u rezultatima pretrage; ako su cene iste, prikazuje se jedan iznos.
-- Cena izabrane ponude ostaje jasno označena i koristi se za spisak.
-- Pančevo i druga tačna poklapanja naziva mesta prikazuju se prva.
-- Odvojena polja za ulicu i kućni broj, jasnije poruke za nepotvrđene adrese.
-- Pamćenje poslednje potvrđene oblasti i udaljenosti pretrage.
-- Naziv trgovinskog lanca uz poslovnicu.
-- Potkategorije proizvoda, uključujući odvojeni izbor kafe, čaja i pića.
-- Skener otvara kameru direktno u portrait režimu.
+- Ujednačen izgled ekrana, kartica i dugmadi.
+- Prodavnice u najjeftinijoj kupovini prikazane u zasebnim karticama sa dugmetom za Google Maps navigaciju.
+- Skener u okviru našeg ekrana, sa kontrolom svetla i povratkom.
+- Dodavanje proizvoda iz poređenja cena direktno na spisak, bez izbora trgovca; dijalog se zatvara nakon dodavanja.
+- Pretraga celog kataloga direktno sa ekrana Kategorije.
+- Indikator pretrage i prikaz ukupnog broja artikala, pronađenih i prikazanih rezultata.
+- Prekid zastarelih pretraga tokom kucanja.
+- Skrivanje tastature čuva upit; tastatura se automatski skloni posle 3 sekunde bez kucanja.
 
-Raspon cena obuhvata ceo sačuvani katalog, nije ograničen lokacijom. Cene su informativne; dostupnost u poslovnici nije potvrđena.
+Za proveru: skeniranje stvarnog bar-koda, dodavanje na spisak, pretraga i zatvaranje tastature, navigacija do prodavnice.

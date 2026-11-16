@@ -12,6 +12,9 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.CancellationSignal
 import android.text.InputType
 import android.text.TextWatcher
 import android.text.Editable
@@ -41,13 +44,13 @@ class MainActivity : ComponentActivity() {
     private companion object {
         val io = Executors.newSingleThreadExecutor()
         val syncWorker = Executors.newSingleThreadExecutor()
-        val paper = Color.rgb(244, 245, 239)
-        val ink = Color.rgb(26, 42, 34)
-        val muted = Color.rgb(80, 97, 85)
-        val forest = Color.rgb(27, 76, 57)
-        val mint = Color.rgb(222, 238, 224)
-        val white = Color.WHITE
-        val warning = Color.rgb(131, 56, 22)
+        val paper = KorpaUi.paper
+        val ink = KorpaUi.ink
+        val muted = KorpaUi.muted
+        val forest = KorpaUi.forest
+        val mint = KorpaUi.mint
+        val white = KorpaUi.white
+        val warning = KorpaUi.warning
     }
 
     private val catalog get() = (application as KorpaApplication).catalog
@@ -66,13 +69,48 @@ class MainActivity : ComponentActivity() {
     private var syncError: String? = null
     private var results: LinearLayout? = null
     private var searchRequest = 0
+    private val searchHandler = Handler(Looper.getMainLooper())
+    private var pendingSearch: Runnable? = null
+    private var searchCancellation: CancellationSignal? = null
+    private var keyboardVisible = false
+    private var pendingKeyboardHide: Runnable? = null
+
+    private fun cancelKeyboardHide() {
+        pendingKeyboardHide?.let { searchHandler.removeCallbacks(it) }
+        pendingKeyboardHide = null
+    }
+
+    private fun scheduleKeyboardHide() {
+        cancelKeyboardHide()
+        val input = currentFocus as? EditText ?: return
+        val task = Runnable {
+            pendingKeyboardHide = null
+            if (!isDestroyed && !isFinishing && hasWindowFocus() &&
+                input.isAttachedToWindow && currentFocus === input) {
+                hideKeyboard()
+            }
+        }
+        pendingKeyboardHide = task
+        searchHandler.postDelayed(task, 3_000L)
+    }
+
+    override fun onStop() {
+        cancelKeyboardHide()
+        super.onStop()
+    }
+
+    private fun cancelSearch() {
+        searchRequest++
+        pendingSearch?.let { searchHandler.removeCallbacks(it) }
+        pendingSearch = null
+        searchCancellation?.cancel()
+        searchCancellation = null
+    }
     private var editingList = false
-    private var comparisonDialog: AlertDialog? = null
-    private var nearbyPicker: NearbyPicker? = null
     private val scannerLauncher = registerForActivityResult(ScanContract()) { result ->
         barcodeLookup.onScanResult(result)
     }
-    private val barcodeLookup: BarcodeLookup by lazy { BarcodeLookup(this) { options -> scannerLauncher.launch(options) } }
+    private val barcodeLookup: BarcodeLookup by lazy { BarcodeLookup(this, { offer -> addOffer(offer) }) { options -> scannerLauncher.launch(options) } }
     private val money = NumberFormat.getNumberInstance(Locale.forLanguageTag("sr-Latn-RS")).apply {
         minimumFractionDigits = 2
         maximumFractionDigits = 2
@@ -106,6 +144,11 @@ class MainActivity : ComponentActivity() {
             root.setOnApplyWindowInsetsListener { view, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
                 val ime = insets.getInsets(WindowInsets.Type.ime())
+                val visible = insets.isVisible(WindowInsets.Type.ime())
+                if (keyboardVisible != visible) {
+                    keyboardVisible = visible
+                    updateCategoryBack()
+                }
                 view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
                 insets
             }
@@ -134,14 +177,15 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("GestureBackNavigation")
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onBackPressed() {
+        if (keyboardVisible) { hideKeyboard(); return }
         // Android 12 and earlier dispatch Back here.
-        if (!showingList && category != null) showCategories() else super.onBackPressed()
+        if (!showingList && (category != null || query.isNotBlank())) showCategories() else super.onBackPressed()
     }
 
     private fun updateCategoryBack() {
         unregisterCategoryBack?.invoke()
         unregisterCategoryBack = null
-        if (Build.VERSION.SDK_INT >= 33 && !showingList && category != null) {
+        if (Build.VERSION.SDK_INT >= 33 && !keyboardVisible && !showingList && (category != null || query.isNotBlank())) {
             val callback = OnBackInvokedCallback { showCategories() }
             val dispatcher = onBackInvokedDispatcher
             dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
@@ -149,20 +193,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStop() {
-        nearbyPicker?.stopLocation()
-        super.onStop()
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == NearbyPicker.PERMISSION_REQUEST) nearbyPicker?.onPermissionsResult()
-    }
-
     override fun onDestroy() {
+        cancelKeyboardHide()
+        cancelSearch()
         barcodeLookup.close()
-        comparisonDialog?.dismiss()
-        nearbyPicker?.dismiss()
         unregisterCategoryBack?.invoke()
         super.onDestroy()
     }
@@ -230,9 +264,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun render() {
+        cancelKeyboardHide()
         results = null
         updateCategoryBack()
-        searchRequest++
+        cancelSearch()
         body.removeAllViews()
         renderHeader()
         navigation.removeAllViews()
@@ -247,7 +282,7 @@ class MainActivity : ComponentActivity() {
             if (showingList) {
                 showingList = false
                 render()
-            } else if (category != null) showCategories()
+            } else if (category != null || query.isNotBlank()) showCategories()
         }
         tab("▥", "Skeniraj", false) { barcodeLookup.show() }
         when {
@@ -314,8 +349,7 @@ class MainActivity : ComponentActivity() {
         page.addView(summary, margins(15))
         if (list.isNotEmpty()) {
             page.addView(button("Najjeftinija kupovina", mint, forest) {
-                nearbyPicker?.dismiss()
-                nearbyPicker = NearbyPicker(this) { area -> showCheapestShopping(area) }
+                startActivity(android.content.Intent(this, CheapestActivity::class.java))
             }, margins(12))
         }
         if (missing > 0) {
@@ -351,67 +385,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showCheapestShopping(area: ShoppingArea) {
-        if (comparisonDialog?.isShowing == true) return
-        val loading = column().apply {
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            addView(ProgressBar(this@MainActivity))
-            addView(label("Tražimo najniže cene za tvoj spisak…", 15, muted), margins(12))
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Najjeftinija kupovina")
-            .setView(loading)
-            .setNegativeButton("Zatvori", null)
-            .create()
-        comparisonDialog = dialog
-        dialog.show()
-        io.execute {
-            val outcome = runCatching { cheapestShopping(catalog.shoppingList(), area) }
-            outcome.exceptionOrNull()?.let { Log.e("KorpaSync", "Price comparison failed", it) }
-            onScreen {
-                if (!dialog.isShowing) return@onScreen
-                loading.removeAllViews()
-                outcome.fold(onSuccess = { comparison ->
-                    val offers = comparison.items
-                    val available = offers.filter { it.price != null }
-                    val total = available.sumOf { requireNotNull(it.price) * it.item.quantity }
-                    val original = available.sumOf { requireNotNull(it.originalPrice) * it.item.quantity }
-                    val content = column()
-                    if (comparison.nearbyStores == 0) {
-                        content.addView(label("Za izabranu oblast još nemamo poslovnice sa potvrđenom lokacijom.", 15, warning), margins(6))
-                    }
-                    content.addView(label(if (available.size == offers.size) "Ukupno: ${rsd(total)}"
-                        else "Dostupni artikli: ${rsd(total)}", 21, forest, true))
-                    content.addView(label(area.label, 15, ink, true), margins(5))
-                    val difference = original - total
-                    content.addView(label(if (difference >= 0) "Ušteda: ${rsd(difference)}"
-                        else "Skuplje od izabranih ponuda: ${rsd(-difference)}", 17, forest, true), margins(5))
-                    content.addView(label("Procena po cenovnicima, bez troškova prevoza. Obuhvaćene su poslovnice sa poznatom lokacijom.", 13, muted), margins(6))
-                    available.groupBy { it.retailer }.forEach { (retailer, products) ->
-                        content.addView(label(retailer.orEmpty(), 18, ink, true), margins(18))
-                        products.forEach { result ->
-                            content.addView(label(result.item.offer.name, 15, ink, true), margins(9))
-                            content.addView(label("${result.item.quantity} × ${rsd(requireNotNull(result.price))} = ${rsd(result.price * result.item.quantity)}",
-                                14, forest), margins(3))
-                            content.addView(label(if (result.priceBasis == "chain") "Cena lanca" else "Cenovnik poslovnice", 12, muted), margins(3))
-                            if (!result.comparable) {
-                                content.addView(label("Prikazana cena izabrane ponude. Nema pouzdanog barkoda za poređenje.", 12, muted), margins(3))
-                            } else if (result.offerCount == 1) {
-                                content.addView(label("Jedina dostupna ponuda.", 12, muted), margins(3))
-                            }
-                        }
-                    }
-                    offers.filter { it.price == null }.forEach { result ->
-                        content.addView(label("${result.item.offer.name} — nema potvrđene ponude u izabranoj okolini.", 14, warning), margins(12))
-                    }
-                    loading.addView(ScrollView(this).apply { addView(content) })
-                }, onFailure = {
-                    loading.addView(label("Poređenje cena zahteva vezu sa serverom. Pokušaj ponovo.", 16, warning))
-                })
-            }
-        }
-    }
-
     private fun changeQuantity(item: ShoppingItem, difference: Int) {
         if (editingList) return
         editingList = true
@@ -440,8 +413,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderCategories() {
-        val page = scrollingPage()
-        page.addView(title("Kategorije"))
+        val layout = column().apply {
+            isFocusableInTouchMode = true
+            setPadding(dp(20), dp(4), dp(20), 0)
+        }
+        body.addView(layout, FrameLayout.LayoutParams(-1, -1))
+        layout.addView(title("Kategorije"))
+        val input = KorpaUi.input(EditText(this)).apply {
+            hint = "Pretraži sve proizvode ili prodavnice"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT
+            setText(query)
+        }
+        layout.addView(input, margins(12))
+        val clear = button("Obriši pretragu", mint, forest) { input.setText("") }
+        layout.addView(clear, margins(8))
+        val page = column().apply { setPadding(0, 0, 0, dp(14)) }
+        val scroll = ScrollView(this).apply { addView(page) }
+        layout.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         if (categories.isEmpty()) {
             page.addView(label("Katalog trenutno nema ponuda.", 16, muted), margins(16))
             return
@@ -489,6 +478,29 @@ class MainActivity : ComponentActivity() {
             })
         }
         page.addView(grid, margins(16))
+        val cards = column()
+        results = cards
+        page.addView(cards)
+        fun searchAll() {
+            val searching = query.isNotBlank()
+            grid.visibility = if (searching) View.GONE else View.VISIBLE
+            cards.visibility = if (searching) View.VISIBLE else View.GONE
+            clear.visibility = if (searching) View.VISIBLE else View.GONE
+            scroll.scrollTo(0, 0)
+            updateCategoryBack()
+            if (searching) loadOffers() else { cancelSearch(); cards.removeAllViews() }
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                query = s.toString()
+                scheduleKeyboardHide()
+                searchAll()
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        layout.requestFocus()
+        searchAll()
     }
 
     private fun renderSearch(selected: Category) {
@@ -504,20 +516,18 @@ class MainActivity : ComponentActivity() {
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT
             setText(query)
-            textSize = 16f
-            setTextColor(ink)
-            background = rounded(white, 16)
-            setPadding(dp(14), 0, dp(14), 0)
+            KorpaUi.input(this)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     query = s.toString()
+                    scheduleKeyboardHide()
                     loadOffers()
                 }
                 override fun afterTextChanged(s: Editable?) = Unit
             })
         }
-        layout.addView(input, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(12) })
+        layout.addView(input, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         val cards = column().apply { setPadding(0, 0, 0, dp(14)) }
         results = cards
         layout.addView(ScrollView(this).apply { addView(cards) }, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -526,44 +536,94 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadOffers(offset: Int = 0) {
-        val selected = category ?: return
+        val selected = category
         val cards = results ?: return
-        val token = ++searchRequest
+        cancelSearch()
+        val token = searchRequest
         val search = query
+        if (selected == null && search.isBlank()) return
+        val cancellation = CancellationSignal()
+        searchCancellation = cancellation
         if (offset == 0) cards.removeAllViews()
-        io.execute {
-            val found = catalog.offers(selected.key, search, offset)
-            onScreen {
-                if (token != searchRequest || cards != results) return@onScreen
-                if (found.isEmpty() && offset == 0) {
-                    cards.addView(label("Nema ponuda za ovu pretragu.", 15, muted), margins(16))
-                }
-                found.take(30).forEach { offer ->
-                    val entry = card()
-                    offerInfo(entry, offer, showRetailer = false)
-                    val line = row().apply { gravity = Gravity.CENTER_VERTICAL }
-                    val prices = column()
-                    prices.addView(label(if (offer.minPrice == offer.maxPrice) rsd(offer.price)
-                        else "${rsd(offer.minPrice)} – ${rsd(offer.maxPrice)}", 17, forest, true))
-                    if (offer.minPrice != offer.maxPrice) {
-                        prices.addView(label("U katalogu · ova ponuda: ${rsd(offer.price)}", 12, muted))
+        val loadingText = label("Pripremamo pretragu…", 15, muted).apply { setPadding(dp(12), 0, 0, 0) }
+        val loading = row().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(ProgressBar(this@MainActivity), LinearLayout.LayoutParams(dp(24), dp(24)))
+            addView(loadingText)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        cards.addView(loading, margins(16))
+        val task = Runnable {
+            io.execute {
+                if (cancellation.isCanceled) return@execute
+                val outcome = runCatching {
+                    catalog.searchOffers(selected?.key, search, offset, cancellation) { total ->
+                        onScreen {
+                            if (token == searchRequest && cards == results && !cancellation.isCanceled) {
+                                loadingText.text = "Pretraga u toku… Ukupno artikala: ${formatCount(total)}"
+                            }
+                        }
                     }
-                    line.addView(prices, LinearLayout.LayoutParams(0, -2, 1f))
-                    line.addView(button("+  Dodaj", mint, forest) { addOffer(offer) }.apply {
-                        contentDescription = "Dodaj ${offer.name} na spisak"
-                    })
-                    entry.addView(line, margins(8))
-                    cards.addView(entry, margins(9))
                 }
-                if (found.size > 30) {
-                    val more = button("Prikaži još", mint, forest) {
-                        cards.removeViewAt(cards.childCount - 1)
-                        loadOffers(offset + 30)
+                onScreen {
+                    if (token != searchRequest || cards != results || cancellation.isCanceled) return@onScreen
+                    cards.removeView(loading)
+                    val page = outcome.getOrElse {
+                        Log.e("KorpaSearch", "Search failed", it)
+                        cards.addView(label("Pretraga nije uspela. Pokušaj ponovo.", 15, warning), margins(12))
+                        cards.addView(button("Pokušaj ponovo", mint, forest) { loadOffers(offset) }, margins(8))
+                        return@onScreen
                     }
-                    cards.addView(more, margins(10))
+                    val found = page.offers
+                    val summary = cards.findViewWithTag<TextView>("search-count") ?: label("", 15, forest, true).apply {
+                        tag = "search-count"
+                        accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+                        cards.addView(this, 0, margins(12))
+                    }
+                    val shown = minOf(offset.toLong() + minOf(found.size, 30), page.matched)
+                    summary.text = "Pronađeno: ${articleCount(page.matched)} · Prikazano: ${formatCount(shown)}\n" +
+                        "Pretraženo: ${articleCount(page.total)}. Isti proizvod kod različitih prodavaca računa se zasebno."
+                    if (found.isEmpty() && offset == 0) {
+                        cards.addView(label("Nema ponuda za ovu pretragu.", 15, muted), margins(16))
+                    }
+                    found.take(30).forEach { offer ->
+                        val entry = card()
+                        offerInfo(entry, offer, showRetailer = false)
+                        val line = row().apply { gravity = Gravity.CENTER_VERTICAL }
+                        val prices = column()
+                        prices.addView(label(if (offer.minPrice == offer.maxPrice) rsd(offer.price)
+                            else "${rsd(offer.minPrice)} – ${rsd(offer.maxPrice)}", 17, forest, true))
+                        if (offer.minPrice != offer.maxPrice) {
+                            prices.addView(label("U katalogu · ova ponuda: ${rsd(offer.price)}", 12, muted))
+                        }
+                        line.addView(prices, LinearLayout.LayoutParams(0, -2, 1f))
+                        line.addView(button("+  Dodaj", mint, forest) { addOffer(offer) }.apply {
+                            contentDescription = "Dodaj ${offer.name} na spisak"
+                        })
+                        entry.addView(line, margins(8))
+                        offer.barcode?.takeIf(::validProductCode)?.let { code ->
+                            entry.addView(button("Uporedi cene i istoriju", mint, forest) { barcodeLookup.showProduct(code) }, margins(8))
+                        }
+                        cards.addView(entry, margins(9))
+                    }
+                    if (found.size > 30) {
+                        val more = button("Prikaži još", mint, forest) {
+                            cards.removeViewAt(cards.childCount - 1)
+                            loadOffers(offset + 30)
+                        }
+                        cards.addView(more, margins(10))
+                    }
                 }
             }
         }
+        pendingSearch = task
+        searchHandler.postDelayed(task, if (offset == 0) 300L else 0L)
+    }
+
+    private fun formatCount(count: Long) = NumberFormat.getIntegerInstance(Locale.forLanguageTag("sr-Latn-RS")).format(count)
+    private fun articleCount(count: Long): String {
+        val ending = if (count % 10 == 1L && count % 100 != 11L) "artikal" else "artikala"
+        return "${formatCount(count)} $ending"
     }
 
     private fun addOffer(offer: Offer) {
@@ -585,6 +645,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun hideKeyboard() {
+        cancelKeyboardHide()
         val focused = currentFocus ?: return
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(focused.windowToken, 0)
         focused.clearFocus()
@@ -598,36 +659,16 @@ class MainActivity : ComponentActivity() {
 
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-    private fun card() = column().apply {
-        background = rounded(white, 19)
-        setPadding(dp(14), dp(13), dp(14), dp(11))
-    }
+    private fun card() = KorpaUi.card(this)
 
     private fun title(value: String) = label(value, 28, ink, true).apply {
         if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
     }
 
-    private fun label(value: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
-        text = value
-        textSize = size.toFloat()
-        setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
-    }
+    private fun label(value: String, size: Int, color: Int, bold: Boolean = false) = KorpaUi.label(this, value, size, color, bold)
 
-    private fun button(value: String, fill: Int, color: Int, action: () -> Unit) = Button(this).apply {
-        text = value
-        isAllCaps = false
-        textSize = 14f
-        setTextColor(color)
-        setPadding(dp(12), 0, dp(12), 0)
-        minimumHeight = dp(48)
-        minHeight = dp(48)
-        minimumWidth = dp(48)
-        minWidth = dp(48)
-        stateListAnimator = null
-        background = RippleDrawable(ColorStateList.valueOf(0x22407558), rounded(fill, 14), null)
-        setOnClickListener { action() }
-    }
+    private fun button(value: String, fill: Int, color: Int, action: () -> Unit) =
+        KorpaUi.styleButton(Button(this), fill, color).apply { text = value; setOnClickListener { action() } }
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
         setColor(color)

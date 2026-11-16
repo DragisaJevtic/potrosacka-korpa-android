@@ -32,3 +32,13 @@ Ručna provera: pokretanje sa i bez mreže, sinhronizacija, očuvanje spiska, ka
 ## Veza sa backendom
 
 API ugovor je u [backend dokumentaciji](https://github.com/DragisaJevtic/potrosacka-korpa-backend/blob/main/docs/API.md). Za novu verziju naselja prenesi backend `web/settlements.json` u `app/src/main/assets/settlements.json`, pregledaj diff i commituj ga uz izdanje.
+
+Verzija 0.5.0 ima `versionCode=9`. Pripremljeni debug APK koristi `https://korpa.intelisystems.dev`; podrazumevani razvojni Gradle parametar i dalje pokazuje na NUC. Za identičan build eksplicitno proslediti produkcijski `korpaDebugApiUrl`. `PriceHistory.kt` koristi desugaring java.time za Android 7+ i podatke sa novog `/api/history` endpointa. Početni katalog ponovo generisati iz istog okruženja kao APK.
+
+### Zajednički izgled Android ekrana
+
+`KorpaUi.kt` definiše paletu, kartice, tekst, polja za unos i dugmad.
+Katalog, spisak, najjeftinija kupovina, izbor lokacije i istorija koriste ove
+komponente. Primarne akcije su tamnozelene sa belim tekstom, sekundarne svetlozelene.
+Kartice imaju isti okvir, zaobljenje i unutrašnji razmak; dugmad najmanje 48 dp.
+Nove ekrane graditi ovim komponentama umesto zasebnim kopijama stilova.

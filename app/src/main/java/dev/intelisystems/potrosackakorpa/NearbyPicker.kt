@@ -42,7 +42,7 @@ data class Settlement(val id: String, val name: String, val municipality: String
 
 data class ShoppingArea(val settlement: Settlement, val latitude: Double? = null,
                         val longitude: Double? = null, val radius: Int? = null) {
-    val label get() = if (settlement.population < 5000) settlement.name else "${settlement.name} · $radius km"
+    val label get() = if (settlement.population < 5000) if (radius != null) "${settlement.name} · celo mesto i okolina do $radius km" else settlement.name else "${settlement.name} · $radius km"
     fun json() = JSONObject().put("settlement_id", settlement.id).apply {
         if (latitude != null && longitude != null) {
             put("latitude", latitude)
@@ -53,7 +53,7 @@ data class ShoppingArea(val settlement: Settlement, val latitude: Double? = null
 }
 
 /** Only a confirmed search area is saved locally for the next visit. */
-class NearbyPicker(private val activity: Activity, private val onSelected: (ShoppingArea) -> Unit) {
+class NearbyPicker(private val activity: Activity, private val container: LinearLayout? = null, private val onSelected: (ShoppingArea) -> Unit) {
     companion object { const val PERMISSION_REQUEST = 401 }
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -68,6 +68,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
     private var savedHouse = ""
     private val radius = Spinner(activity)
     private val status = TextView(activity)
+    private val townOnly = KorpaUi.styleButton(Button(activity))
     private val streetFields = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
     private val radii = listOf(1, 2, 5, 10, 20)
     private var places = emptyList<Settlement>()
@@ -80,11 +81,12 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
     private var alive = true
     private var locating = false
     private var resolving = false
+    private var addressRevision = 0
     private val timeout = Runnable {
         stopLocation()
         status.text = "Lokacija nije pronađena. Proveri da li je uključena ili unesi mesto i ulicu."
     }
-    private val dialog: AlertDialog
+    private var dialog: AlertDialog? = null
 
     init {
         val padding = (20 * activity.resources.displayMetrics.density).toInt()
@@ -92,13 +94,11 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding / 2, padding, padding)
         }
-        content.addView(TextView(activity).apply {
-            text = "Za naselja sa manje od 5.000 stanovnika pretražujemo celo mesto. Za veća mesta izaberi udaljenost od svoje ulice."
+        content.addView(KorpaUi.label(activity, "Izaberi oblast kupovine", 20, KorpaUi.ink, true))
+        content.addView(KorpaUi.label(activity, "").apply {
+            text = "Za naselja sa manje od 5.000 stanovnika pretražujemo celo mesto i okolne prodavnice u izabranom radijusu. Za veća mesta izaberi udaljenost od svoje ulice."
         })
-        content.addView(Button(activity).apply {
-            text = "Moja lokacija"
-            setOnClickListener { requestLocation() }
-        })
+        content.addView(KorpaUi.button(activity, "Moja lokacija") { requestLocation() })
         place.hint = "Mesto"
         place.threshold = 2
         place.setSingleLine()
@@ -110,34 +110,54 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
         house.setSingleLine()
         streetFields.addView(house)
         streetFields.addView(TextView(activity).apply { text = "Bez broja stana, sprata i ulaza." })
-        streetFields.addView(TextView(activity).apply { text = "Udaljenost vazdušnom linijom" })
+        content.addView(streetFields)
+        content.addView(TextView(activity).apply { text = "Udaljenost okoline vazdušnom linijom" })
         radius.adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, radii.map { "$it km" })
         radius.setSelection(1)
-        streetFields.addView(radius)
-        content.addView(streetFields)
+        content.addView(radius)
         content.addView(status)
+        townOnly.text = "Pretraži samo izabrano mesto, bez okoline"
+        townOnly.visibility = View.GONE
+        townOnly.setOnClickListener {
+            selected?.takeIf { it.population < 5000 }?.let { complete(ShoppingArea(it)) }
+        }
+        content.addView(townOnly)
         status.text = "Učitavamo spisak naselja…"
-        dialog = AlertDialog.Builder(activity).setTitle("Kupovina u okolini")
-            .setView(ScrollView(activity).apply { addView(content) })
-            .setPositiveButton("Pretraži", null).setNegativeButton("Otkaži", null).create()
+        if (container == null) {
+            dialog = AlertDialog.Builder(activity).setTitle("Kupovina u okolini")
+                .setView(ScrollView(activity).apply { addView(content) })
+                .setPositiveButton("Pretraži", null).setNegativeButton("Otkaži", null).create()
+        } else {
+            content.addView(KorpaUi.button(activity, "Pretraži", true) { search() })
+            container.addView(ScrollView(activity).apply { addView(content) }, LinearLayout.LayoutParams(-1, -1))
+        }
+        listOf(place, street, house).forEach { KorpaUi.input(it) }
+        status.setTextColor(KorpaUi.muted)
+        status.textSize = 14f
+        radius.minimumHeight = KorpaUi.dp(activity, 48)
+        fun spaceChildren(layout: LinearLayout) {
+            for (index in 0 until layout.childCount) {
+                val child = layout.getChildAt(index)
+                child.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = KorpaUi.dp(activity, 12) }
+            }
+        }
+        spaceChildren(content)
+        spaceChildren(streetFields)
         place.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
                 if (s.toString() != selected?.label) {
+                    clearAddress()
                     selected = null
+                    townOnly.visibility = View.GONE
                     streetFields.visibility = View.VISIBLE
                 }
             }
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
         })
-        dialog.setOnDismissListener {
-            alive = false
-            addressDialog?.dismiss()
-            stopLocation()
-            executor.shutdownNow()
-        }
-        dialog.show()
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { search() }
+        dialog?.setOnDismissListener { dispose() }
+        dialog?.show()
+        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { search() }
         executor.execute {
             val loaded = runCatching {
                 val data = activity.assets.open("settlements.json").bufferedReader().use { JSONObject(it.readText()) }
@@ -160,17 +180,44 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
         }
     }
 
-    fun dismiss() = dialog.dismiss()
+    fun dismiss() { dialog?.dismiss(); dispose() }
+
+    private fun dispose() {
+        alive = false
+        addressDialog?.dismiss()
+        stopLocation()
+        executor.shutdownNow()
+    }
 
     private fun ui(action: () -> Unit) = activity.runOnUiThread {
         if (alive && !activity.isDestroyed) action()
     }
 
+    private fun clearAddress() {
+        addressRevision++
+        stopLocation()
+        resolving = false
+        addressDialog?.dismiss()
+        street.setText("")
+        house.setText("")
+        current = null
+        currentSettlement = null
+        currentStreet = ""
+        currentHouse = ""
+        savedArea = null
+        savedStreet = ""
+        savedHouse = ""
+        status.text = "Izaberi mesto iz ponuđene liste."
+    }
+
     private fun select(value: Settlement) {
+        if (selected?.id != value.id) clearAddress()
         selected = value
+        townOnly.visibility = if (value.population < 5000) View.VISIBLE else View.GONE
         place.setText(value.label, false)
+        radius.setSelection(if (value.population < 5000) 3 else 1)
         streetFields.visibility = if (value.population < 5000) View.GONE else View.VISIBLE
-        status.text = if (value.population < 5000) "Pretražujemo celo naselje ${value.name}."
+        status.text = if (value.population < 5000) "Pretražujemo celo naselje ${value.name} i okolinu. Potvrdićemo lokaciju od koje merimo udaljenost."
         else "Izaberi ulicu i udaljenost za pretragu."
     }
 
@@ -242,7 +289,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
     @Suppress("DEPRECATION")
     private fun foundLocation(location: Location) {
         stopLocation()
-        current = location
+        val revision = addressRevision
         resolving = true
         status.text = "Prepoznajemo mesto i ulicu…"
         executor.execute {
@@ -251,6 +298,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
                     .getFromLocation(location.latitude, location.longitude, 1)?.firstOrNull()
             }.getOrNull()
             ui {
+                if (revision != addressRevision) return@ui
                 resolving = false
                 val city = address?.locality.orEmpty()
                 val matches = places.filter { placeKey(it.name) == placeKey(city) }
@@ -262,6 +310,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
                     place.setText(city)
                     place.showDropDown()
                 }
+                current = location
                 currentStreet = address?.thoroughfare.orEmpty()
                 street.setText(currentStreet)
                 house.setText(address?.subThoroughfare.orEmpty())
@@ -283,8 +332,13 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
         val recent = point != null &&
             SystemClock.elapsedRealtimeNanos() - point.elapsedRealtimeNanos in 0..90_000_000_000L
         if (settlement.population < 5000) {
+            val distance = radii[radius.selectedItemPosition]
             val trusted = if (recent && currentSettlement == settlement.id) point else null
-            complete(ShoppingArea(settlement, trusted?.latitude, trusted?.longitude))
+            if (trusted != null) {
+                complete(ShoppingArea(settlement, trusted.latitude, trusted.longitude, distance))
+            } else if (savedArea?.settlement?.id == settlement.id && savedArea?.latitude != null && savedArea?.longitude != null) {
+                complete(savedArea!!.copy(radius = distance))
+            } else resolveTown(settlement, distance)
             return
         }
         val distance = radii[radius.selectedItemPosition]
@@ -304,6 +358,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
         if (validation != null) { status.text = validation; return }
         resolving = true
         status.text = "Proveravamo ulicu i kućni broj…"
+        val revision = addressRevision
         val query = "$streetText $houseText, ${settlement.name}, Srbija"
         executor.execute {
             val outcome = runCatching {
@@ -316,6 +371,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
                     }
             }
             ui {
+                if (revision != addressRevision) return@ui
                 resolving = false
                 // Ignore an answer for fields the user changed during the request.
                 if (selected?.id != settlement.id || street.text.toString().trim() != streetText ||
@@ -326,6 +382,38 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
                 }, onFailure = {
                     status.text = "Servis za proveru adrese nije dostupan. Proveri internet ili koristi „Moja lokacija“."
                 })
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun resolveTown(settlement: Settlement, distance: Int) {
+        val revision = addressRevision
+        resolving = true
+        status.text = "Tražimo centar naselja za pretragu okoline…"
+        executor.execute {
+            val result = runCatching {
+                Geocoder(activity, Locale.forLanguageTag("sr-Latn-RS"))
+                    .getFromLocationName("${settlement.name}, ${settlement.municipality}, Srbija", 10)
+                    .orEmpty().filter { it.countryCode == "RS" && it.hasLatitude() && it.hasLongitude() &&
+                        placeKey(it.locality.orEmpty()) == placeKey(settlement.name) }
+            }
+            ui {
+                if (revision != addressRevision) return@ui
+                resolving = false
+                if (selected?.id != settlement.id) return@ui
+                val found = result.getOrNull().orEmpty()
+                if (found.isEmpty()) {
+                    status.text = "Centar mesta nije potvrđen. Koristi „Moja lokacija“ u izabranom mestu za pretragu okoline."
+                } else {
+                    addressDialog = AlertDialog.Builder(activity).setTitle("Potvrdi centar naselja")
+                        .setItems(found.map { "${it.getAddressLine(0)} (${String.format(Locale.ROOT, "%.4f, %.4f", it.latitude, it.longitude)})" }.toTypedArray()) { _, index ->
+                            if (alive && selected?.id == settlement.id) {
+                                val address = found[index]
+                                complete(ShoppingArea(settlement, address.latitude, address.longitude, distance))
+                            }
+                        }.setNegativeButton("Nazad", null).show()
+                }
             }
         }
     }
@@ -346,16 +434,16 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
         runCatching {
             val json = JSONObject(preferences.getString("confirmed", null) ?: return)
             val settlement = places.firstOrNull { it.id == json.getString("settlement_id") } ?: return
+            select(settlement)
             savedStreet = json.optString("street")
             savedHouse = json.optString("house")
             savedArea = ShoppingArea(settlement,
                 if (json.isNull("latitude")) null else json.getDouble("latitude"),
                 if (json.isNull("longitude")) null else json.getDouble("longitude"),
                 if (json.isNull("radius_km")) null else json.getInt("radius_km"))
-            select(settlement)
             street.setText(savedStreet)
             house.setText(savedHouse)
-            radius.setSelection(radii.indexOf(savedArea?.radius).takeIf { it >= 0 } ?: 1)
+            radius.setSelection(radii.indexOf(savedArea?.radius).takeIf { it >= 0 } ?: if (settlement.population < 5000) 3 else 1)
             status.text = "Sačuvana lokacija prethodne pretrage. Za novu trenutnu lokaciju izaberi „Moja lokacija“."
         }
     }
@@ -363,8 +451,7 @@ class NearbyPicker(private val activity: Activity, private val onSelected: (Shop
     private fun complete(area: ShoppingArea) {
         preferences.edit().putString("confirmed", area.json()
             .put("street", street.text.toString().trim()).put("house", house.text.toString().trim()).toString()).apply()
-        dialog.dismiss()
-        addressDialog?.dismiss()
+        dismiss()
         onSelected(area)
     }
 

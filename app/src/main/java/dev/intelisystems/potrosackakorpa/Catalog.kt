@@ -20,7 +20,7 @@ import java.util.zip.GZIPInputStream
 data class Category(val key: String, val name: String, val icon: String = "🛒")
 
 private data class CategoryGroup(val category: Category, val members: List<String>)
-data class Offer(val id: String, val name: String, val retailer: String, val unit: String?, val price: Long, val minPrice: Long = price, val maxPrice: Long = price)
+data class Offer(val id: String, val name: String, val retailer: String, val unit: String?, val price: Long, val minPrice: Long = price, val maxPrice: Long = price, val barcode: String? = null)
 data class ShoppingItem(val offer: Offer, val quantity: Int, val available: Boolean)
 
 class CatalogHttpError(val status: Int) : IOException("Catalog HTTP $status")
@@ -142,31 +142,77 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
         return members.map { key -> Category("category:$key", key.replaceFirstChar { it.titlecase(Locale.forLanguageTag("sr-Latn-RS")) }) }
     }
 
-    fun offers(category: String, query: String, offset: Int): List<Offer> {
-        val term = "%" + searchKey(query.trim()).replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
-        val beverage = category.startsWith("drink-")
+    private fun searchScope(category: String?): Triple<String, String, List<String>> {
+        val beverage = category?.startsWith("drink-") == true
         val group = categoryGroups.firstOrNull { it.category.key == category || (beverage && it.category.key == "group-2") }
         val members = when {
             category == "group-other" -> categoryGroups.flatMap { it.members }
             group != null -> group.members
-            else -> listOf(category.removePrefix("category:"))
+            else -> listOf(category.orEmpty().removePrefix("category:"))
         }
         val operator = if (category == "group-other") "NOT IN" else "IN"
         val placeholders = members.joinToString(",") { "?" }
-        val beverageFilter = beverageSql(category)
+        val beverageFilter = if (category == null) "1=1" else beverageSql(category)
+        val categoryFilter = if (category == null) "1=1" else "category $operator ($placeholders)"
+        return Triple(categoryFilter, beverageFilter, if (category == null) emptyList() else members)
+    }
+
+    data class SearchResults(val total: Long, val matched: Long, val offers: List<Offer>)
+
+    fun searchOffers(category: String?, query: String, offset: Int,
+                     cancellation: android.os.CancellationSignal, onTotal: (Long) -> Unit): SearchResults {
+        val (categoryFilter, beverageFilter, members) = searchScope(category)
+        val term = "%" + searchKey(query.trim()).replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        val db = readableDatabase
+        // Counts and page refer to the same catalog even if a sync finishes during search.
+        db.beginTransactionNonExclusive()
+        try {
+            val total = db.rawQuery("SELECT count(*) FROM offers WHERE $categoryFilter AND ($beverageFilter)",
+                members.toTypedArray(), cancellation).use { it.moveToFirst(); it.getLong(0) }
+            onTotal(total)
+            val matched = db.rawQuery("""
+                SELECT count(*) FROM offers WHERE $categoryFilter AND ($beverageFilter)
+                AND (name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!')
+            """.trimIndent(), (members + listOf(term, term)).toTypedArray(), cancellation).use {
+                it.moveToFirst(); it.getLong(0)
+            }
+            val result = SearchResults(total, matched, offers(category, query, offset, cancellation))
+            db.setTransactionSuccessful()
+            return result
+        } finally { db.endTransaction() }
+    }
+
+    fun offers(category: String?, query: String, offset: Int, cancellation: android.os.CancellationSignal? = null): List<Offer> {
+        val term = "%" + searchKey(query.trim()).replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        val (categoryFilter, beverageFilter, members) = searchScope(category)
         return readableDatabase.rawQuery("""
             SELECT o.id, o.name, o.retailer, o.unit, o.price,
                 COALESCE((SELECT MIN(p.price) FROM offers p WHERE p.product_key = o.product_key), o.price),
-                COALESCE((SELECT MAX(p.price) FROM offers p WHERE p.product_key = o.product_key), o.price)
-            FROM offers o WHERE category $operator ($placeholders)
-            AND ($beverageFilter)
-            AND (name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!')
-            ORDER BY name_key, id LIMIT 31 OFFSET ?
-        """.trimIndent(), (members + listOf(term, term, offset.toString())).toTypedArray()).use { cursor ->
+                COALESCE((SELECT MAX(p.price) FROM offers p WHERE p.product_key = o.product_key), o.price), o.product_key
+            FROM (
+                SELECT * FROM offers WHERE $categoryFilter
+                AND ($beverageFilter)
+                AND (name_key LIKE ? ESCAPE '!' OR retailer_key LIKE ? ESCAPE '!')
+                ORDER BY name_key, id LIMIT 31 OFFSET ?
+            ) o ORDER BY o.name_key, o.id
+        """.trimIndent(), (members + listOf(term, term, offset.toString())).toTypedArray(), cancellation).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
-                    add(Offer(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getLong(5), cursor.getLong(6)))
+                    add(Offer(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getLong(5), cursor.getLong(6), cursor.getString(7)?.removePrefix("gtin:")))
                 }
+            }
+        }
+    }
+
+    fun offersForBarcode(code: String): List<Offer> {
+        if (!validProductCode(code)) return emptyList()
+        return readableDatabase.rawQuery("""
+            SELECT id,name,retailer,unit,price FROM offers
+            WHERE product_key = ? ORDER BY price,retailer,id
+        """.trimIndent(), arrayOf("gtin:" + code.padStart(14, '0'))).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(Offer(cursor.getString(0), cursor.getString(1),
+                    cursor.getString(2), cursor.getString(3), cursor.getLong(4), barcode = code))
             }
         }
     }
@@ -219,13 +265,11 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
         var received = 0
         val staging = File.createTempFile("catalog-", ".jsonl", context.cacheDir)
         try {
-            var version = ""
+            val state = CatalogPageState(since)
             var after: String?
-            var cursor = ""
-            var reset = false
             staging.bufferedWriter().use { file ->
                 do {
-                    val params = mapOf("since" to since, "target" to version, "after" to cursor)
+                    val params = mapOf("since" to since, "target" to state.version, "after" to state.cursor)
                         .filterValues { it.isNotEmpty() }
                         .entries.joinToString("&") { (key, value) -> "$key=${URLEncoder.encode(value, "UTF-8")}" }
                     val connection = URI("$baseUrl/api/mobile/catalog?$params").toURL().openConnection() as HttpURLConnection
@@ -236,6 +280,7 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
                         Log.i("KorpaSync", "GET catalog page=${pages + 1} HTTP=$status")
                         when (status) {
                             304 -> {
+                                state.unchanged()
                                 Log.i("KorpaSync", "Catalog unchanged")
                                 return false
                             }
@@ -246,25 +291,19 @@ class Catalog(private val context: Context) : SQLiteOpenHelper(context, prepareD
                     } finally {
                         connection.disconnect()
                     }
-                    if (version.isEmpty()) {
-                        version = page.getString("version")
-                        reset = page.getBoolean("reset")
-                    }
-                    check(version == page.getString("version") && reset == page.getBoolean("reset"))
+                    after = if (page.isNull("next")) null else page.getString("next")
+                    state.accept(page.getString("version"), page.getBoolean("reset"), after, page.getJSONArray("removed").length())
                     file.appendLine(page.toString())
                     pages++
                     received += page.getJSONArray("updates").length()
                     Log.i("KorpaSync", "Received page=$pages updates=${page.getJSONArray("updates").length()} removed=${page.getJSONArray("removed").length()} totalUpdates=$received")
                     onProgress("Preuzeto $received ponuda · stranica $pages")
-                    after = if (page.isNull("next")) null else page.getString("next")
-                    check(after == null || after > cursor)
-                    cursor = after.orEmpty()
                 } while (after != null)
             }
-            Log.i("KorpaSync", "Saving catalog reset=$reset pages=$pages updates=$received bytes=${staging.length()}")
+            Log.i("KorpaSync", "Saving catalog reset=${state.reset} pages=$pages updates=$received bytes=${staging.length()}")
             onProgress("Čuvamo $received ponuda na telefonu…")
-            apply(staging, version, reset)
-            Log.i("KorpaSync", "Catalog committed version=$version")
+            apply(staging, state.version, state.reset)
+            Log.i("KorpaSync", "Catalog committed version=${state.version}")
             return true
         } finally {
             staging.delete()

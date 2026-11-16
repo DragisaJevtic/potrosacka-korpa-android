@@ -15,7 +15,8 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 /** Camera images stay with the scanner; only numeric product codes reach our API. */
-class BarcodeLookup(private val activity: Activity, private val launchScanner: (ScanOptions) -> Unit) {
+class BarcodeLookup(private val activity: Activity, private val addToShopping: (Offer) -> Unit, private val launchScanner: (ScanOptions) -> Unit) {
+    private val history = PriceHistory(activity)
     private val worker = Executors.newSingleThreadExecutor()
     private var dialog: AlertDialog? = null
     private var scanning = false
@@ -29,6 +30,10 @@ class BarcodeLookup(private val activity: Activity, private val launchScanner: (
         if (closed || scanning) return
         dialog?.dismiss()
         scan()
+    }
+
+    fun showProduct(code: String) {
+        if (!closed && !scanning) lookup(code, fromScanner = false)
     }
 
     private fun scan() {
@@ -61,10 +66,10 @@ class BarcodeLookup(private val activity: Activity, private val launchScanner: (
         }
         val code = if (result.formatName == "UPC_E" && contents.length == 8 && contents.all { it in '0'..'9' })
             UPCEReader.convertUPCEtoUPCA(contents) else contents
-        lookup(code)
+        lookup(code, fromScanner = true)
     }
 
-    private fun lookup(raw: String) {
+    private fun lookup(raw: String, fromScanner: Boolean) {
         val code = raw.trim()
         if (!validProductCode(code)) {
             message("Skenirani kod nije ispravan EAN/UPC broj. QR linkovi i interni kodovi prodavnica nisu podržani.")
@@ -73,38 +78,66 @@ class BarcodeLookup(private val activity: Activity, private val launchScanner: (
         val token = ++request
         dialog?.dismiss()
         val content = column().apply { addView(ProgressBar(activity)); addView(text("Tražimo cene za $code…")) }
-        val resultDialog = AlertDialog.Builder(activity).setTitle("Cene proizvoda").setView(content)
-            .setPositiveButton("Novi kod") { _, _ -> show() }.setNegativeButton("Zatvori", null).create()
+        val builder = AlertDialog.Builder(activity).setTitle("Cene proizvoda").setView(content)
+            .setNegativeButton("Zatvori", null)
+        if (fromScanner) builder.setPositiveButton("Novi kod") { _, _ -> show() }
+        val resultDialog = builder.create()
         dialog = resultDialog
         resultDialog.show()
+        resultDialog.window?.setBackgroundDrawable(KorpaUi.rounded(activity, KorpaUi.paper))
+        if (fromScanner) KorpaUi.styleButton(resultDialog.getButton(AlertDialog.BUTTON_POSITIVE))
+        KorpaUi.styleButton(resultDialog.getButton(AlertDialog.BUTTON_NEGATIVE), KorpaUi.paper, KorpaUi.muted)
         worker.execute {
-            val outcome = runCatching { fetch(code) }
+            val outcome = runCatching {
+                val offers = fetch(code)
+                val catalog = (activity.application as KorpaApplication).catalog
+                val shoppingOffers = catalog.offersForBarcode(code)
+                val savedIds = catalog.shoppingList().map { it.offer.id }.toSet()
+                // Keep an existing list entry when possible; the reference offer does not
+                // restrict later cheapest-shopping comparisons to this retailer.
+                val product = shoppingOffers.firstOrNull { it.id in savedIds } ?: shoppingOffers.firstOrNull()
+                offers to product
+            }
             activity.runOnUiThread {
                 if (closed || token != request || !resultDialog.isShowing) return@runOnUiThread
                 content.removeAllViews()
-                outcome.fold(onSuccess = { offers ->
-                    val rows = column()
+                outcome.fold(onSuccess = { (offers, product) ->
+                    val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
                     rows.addView(text("Bar-kod: $code"))
+                    if (product != null) {
+                        rows.addView(KorpaUi.button(activity, "Dodaj na spisak za kupovinu", true) {
+                            addToShopping(product)
+                            resultDialog.dismiss()
+                        }, margins(8))
+                    } else {
+                        rows.addView(text("Za dodavanje na spisak prvo osveži katalog aplikacije."))
+                    }
                     if (offers.isEmpty()) rows.addView(text("Za ovaj bar-kod trenutno nemamo cenu u katalogu. Pokušaj pretragu po nazivu u kategorijama."))
                     else {
                         rows.addView(text("Najniže objavljene cene po prodajnom formatu. Prikaz nije ograničen na tvoju lokaciju; dostupnost u poslovnici nije potvrđena."))
-                        offers.groupBy { it.retailer }.values.map { group -> group.minBy { it.para } }
+                        offers.groupBy { it.identity.source to it.identity.format }.values.map { group -> group.minBy { it.para } }
                             .sortedBy { it.para }.forEach { offer ->
-                                rows.addView(text(offer.retailer, true))
-                                rows.addView(text(offer.name))
-                                rows.addView(text("${money.format(java.math.BigDecimal.valueOf(offer.para, 2))} RSD", true))
+                                val card = KorpaUi.card(activity)
+                                card.addView(text(offer.retailer, true))
+                                card.addView(text(offer.name))
+                                card.addView(KorpaUi.button(activity,
+                                    "${amount(offer.para)} · Istorija cene") { history.show(offer.identity) }, margins(8))
+                                rows.addView(card, margins(12))
                             }
                     }
                     content.addView(ScrollView(activity).apply { addView(rows) })
                 }, onFailure = {
                     content.addView(text("Cene nisu učitane. Proveri internet i pokušaj ponovo."))
-                    content.addView(Button(activity).apply { text = "Pokušaj ponovo"; setOnClickListener { lookup(code) } })
+                    content.addView(KorpaUi.button(activity, "Pokušaj ponovo", true) { lookup(code, fromScanner) }, margins(12))
                 })
             }
         }
     }
 
-    private data class Price(val name: String, val retailer: String, val para: Long)
+    private fun amount(value: Long) = "${money.format(java.math.BigDecimal.valueOf(value, 2))} RSD"
+    private fun margins(top: Int) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = KorpaUi.dp(activity, top) }
+
+    private data class Price(val name: String, val retailer: String, val para: Long, val identity: HistoryIdentity)
 
     private fun fetch(code: String): List<Price> {
         check(BuildConfig.API_URL.isNotEmpty())
@@ -122,7 +155,8 @@ class BarcodeLookup(private val activity: Activity, private val launchScanner: (
                 List(rows.length()) { i ->
                     val row = rows.getJSONObject(i)
                     Price(row.getString("name"), row.optString("retailer_label").takeUnless { it.isBlank() || it == "null" }
-                        ?: row.getString("retailer_format"), row.getLong("effective_para"))
+                        ?: row.getString("retailer_format"), row.getLong("effective_para"),
+                        HistoryIdentity(variant, row.getString("source"), row.getString("retailer_format")))
                 }
             } finally { connection.disconnect() }
         }
@@ -133,16 +167,15 @@ class BarcodeLookup(private val activity: Activity, private val launchScanner: (
         val padding = (16 * resources.displayMetrics.density).toInt()
         setPadding(padding, padding, padding, padding)
     }
-    private fun text(value: String, bold: Boolean = false) = TextView(activity).apply {
-        text = value; textSize = if (bold) 18f else 15f
-        setTextColor(Color.rgb(26, 42, 34))
-        setPadding(0, 8, 0, 8)
-        if (bold) setTypeface(null, android.graphics.Typeface.BOLD)
+    private fun text(value: String, bold: Boolean = false) = KorpaUi.label(activity, value,
+        if (bold) 18 else 15, if (bold) KorpaUi.ink else KorpaUi.muted, bold).apply {
+        val padding = KorpaUi.dp(activity, 8)
+        setPadding(0, padding, 0, padding)
     }
     private fun message(value: String) {
         if (!closed) Toast.makeText(activity, value, Toast.LENGTH_LONG).show()
     }
-    fun close() { closed = true; request++; dialog?.dismiss(); worker.shutdownNow() }
+    fun close() { history.close(); closed = true; request++; dialog?.dismiss(); worker.shutdownNow() }
 }
 
 internal fun validProductCode(code: String): Boolean {

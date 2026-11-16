@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NearbyInputTest {
+    @Test fun smallTownRadiusIsExplicitAndLocalOnlyRemainsAvailable() {
+        val village = Settlement("id", "Selo", "Opština", 1000)
+        val nearby = ShoppingArea(village, 44.0, 20.0, 10)
+        assertEquals(10, nearby.json().getInt("radius_km"))
+        assertTrue(nearby.label.contains("celo mesto i okolina"))
+        assertFalse(ShoppingArea(village).json().has("radius_km"))
+        assertEquals("Selo", ShoppingArea(village).label)
+    }
     @Test fun townItselfPrecedesMunicipalityVillages() {
         val city = Settlement("city", "Pančevo", "Pančevo", 73401)
         val village = Settlement("village", "Banatski Brestovac", "Pančevo", 2785)

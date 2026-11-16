@@ -16,8 +16,8 @@ android {
         applicationId = providers.gradleProperty("korpaApplicationId").orElse("dev.intelisystems.potrosackakorpa").get()
         minSdk = 24
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.4.3"
+        versionCode = 13
+        versionName = "0.5.4"
     }
 
     buildFeatures { buildConfig = true }
@@ -33,13 +33,16 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("androidx.activity:activity:1.9.3")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
